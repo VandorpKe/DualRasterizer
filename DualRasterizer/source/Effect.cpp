@@ -2,6 +2,9 @@
 #include "Effect.h"
 #include "Texture.h"
 
+#define RESET   "\033[0m" 
+#define GREEN   "\033[32m" 
+
 namespace dae
 {
 	Effect::Effect(ID3D11Device* pDevice, const std::wstring& assetFile)
@@ -74,7 +77,6 @@ namespace dae
 		else
 			m_FilterMethod = FilterState(static_cast<int>(m_FilterMethod) + 1);
 
-
 		switch (m_FilterMethod)
 		{
 		case FilterState::point:
@@ -82,7 +84,6 @@ namespace dae
 				m_pTechnique = m_pEffect->GetTechniqueByName("PointFilteringTechnique");
 				if (!m_pTechnique->IsValid())
 					std::wcout << L"PointFilteringTechnique not valid\n";
-				std::wcout << L"PointFilteringTechnique\n";
 			}
 			break;
 		case FilterState::linear:
@@ -90,7 +91,6 @@ namespace dae
 				m_pTechnique = m_pEffect->GetTechniqueByName("LinearFilteringTechnique");
 				if (!m_pTechnique->IsValid()) 
 					std::wcout << L"LinearFilteringTechnique not valid\n";
-				std::wcout << L"LinearFilteringTechnique\n";
 			}
 			break;
 		case FilterState::anisotropic:
@@ -98,8 +98,24 @@ namespace dae
 				m_pTechnique = m_pEffect->GetTechniqueByName("AnisotropicFilteringTechnique");
 				if (!m_pTechnique->IsValid()) 
 					std::wcout << L"AnisotropicFilteringTechnique not valid\n";
-				std::wcout << L"AnisotropicFilteringTechnique\n";
 			}
+			break;
+		}
+		std::cout << RESET;
+	}
+
+	void Effect::PrintFilterMethod() const
+	{
+		switch (m_FilterMethod)
+		{
+		case FilterState::point:
+			std::cout << "POINT\n";
+			break;
+		case FilterState::linear:
+			std::cout << "LINEAR\n";
+			break;
+		case FilterState::anisotropic:
+			std::cout << "ANISOTROPIC\n";
 			break;
 		}
 	}

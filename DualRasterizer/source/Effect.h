@@ -24,6 +24,7 @@ namespace dae
 
 		// Didn't understand the cycle ways on the ppt
 		void CycleTechnique();
+		void PrintFilterMethod() const;
 	protected:
 		enum class FilterState
 		{

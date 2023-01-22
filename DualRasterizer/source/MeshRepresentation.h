@@ -14,6 +14,8 @@ public:
 
 	void RotateY(float angle);
 	void Translation(float x, float y, float z);
+
+	void PrintFilterMethod() const;
 private:
 	Effect* m_pEffect;
 	uint32_t m_NumIndices;

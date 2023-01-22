@@ -37,8 +37,14 @@ namespace dae
 
 		// KEYS
 		void StateRasterizer(); // F1
-		void StateTechnique();
-		void StateRotation();
+		void StateRotation(); // F2
+		void ToggleUniformClearColor(); // F10
+		void ToggleFireFXMesh(); // F3
+		void CycleFilterMethods(); // F4
+		void CycleShadingMode(); // F5
+		void StateNormalMap(); // F6
+		void ToggleDepthBuffer(); // F7
+		void ToggleBoundingBox(); // F8
 	private:
 		SDL_Window* m_pWindow{};
 
@@ -50,17 +56,13 @@ namespace dae
 		Camera m_Camera{};
 
 		// SELECTION STATE
-		bool m_EnableNormalMap = { true };
-		bool m_EnableRotation = { true };
+		bool m_RotationEnabled = { true };
 		bool m_DirectXEnabled = { true };
-		enum class LightingMode
-		{
-			ObservedArea,	//Lambert Cosine Law
-			Diffuse,		//Lambert material
-			Specular,		//Glossines
-			Combined		//ObservedArea * Diffuse * Specular
-		};
-		LightingMode m_CurrentLightingMode = LightingMode::Combined;
+		bool m_ClearColorEnabled = { false };
+		bool m_FireFXMeshEnabled = { true };
+		bool m_NormalMapEnabled = { true };
+		bool m_DepthBufferEnabled = { false };
+		bool m_BoundingBoxVisualizationEnabled = { false };
 
 		// -----------------------------------
 		// X DIRECTX
@@ -79,6 +81,8 @@ namespace dae
 		std::vector<MeshRepresentation*> m_pHardwareMeshes;
 		float m_CurrentAngle = { 0.f };
 
+		MeshRepresentation* m_pMeshFire;
+
 		Texture* m_pDiffuseTexture;
 		Texture* m_pGlossTexture;
 		Texture* m_pNormalTexture;
@@ -96,5 +100,14 @@ namespace dae
 		float* m_pDepthBufferPixels{};
 
 		std::vector<Mesh> m_SoftwareMeshes;
+
+		enum class LightingMode
+		{
+			ObservedArea,	//Lambert Cosine Law
+			Diffuse,		//Lambert material
+			Specular,		//Glossines
+			Combined		//ObservedArea * Diffuse * Specular
+		};
+		LightingMode m_CurrentLightingMode = LightingMode::Combined;
 	};
 }

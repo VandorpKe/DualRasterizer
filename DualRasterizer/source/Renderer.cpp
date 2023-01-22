@@ -7,9 +7,9 @@
 
 // TEXT COLORS
 #define RESET   "\033[0m" 
-#define GREEN   "\033[32m"     
 #define YELLOW  "\033[33m"       
-#define MAGENTA "\033[35m" 
+#define GREEN   "\033[32m"     
+#define PURPLE "\033[35m" 
 
 namespace dae {
 
@@ -65,8 +65,8 @@ namespace dae {
 		if (!Utils::ParseOBJ("Resources/fireFX.obj", verticesFire, indicesFire))
 			std::wcout << L"Invalid filepath\n";
 
-		auto* pMeshFire = new MeshRepresentation{ m_pDevice, verticesFire, indicesFire, pFireEffect };
-		m_pHardwareMeshes.push_back(pMeshFire);
+		m_pMeshFire = new MeshRepresentation{ m_pDevice, verticesFire, indicesFire, pFireEffect };
+		m_pHardwareMeshes.push_back(m_pMeshFire);
 
 		// -----------------------------------
 		// X INITIALIZE SOFTWARE RASTERIZER PIPELINE
@@ -87,6 +87,25 @@ namespace dae {
 		Mesh& vehicleMesh = m_SoftwareMeshes.emplace_back(Mesh{});
 		vehicleMesh.primitiveTopology = PrimitiveTopology::TriangleList;
 		Utils::ParseOBJ("Resources/vehicle.obj", vehicleMesh.vertices, vehicleMesh.indices);
+
+		// -----------------------------------
+		// X INFORMATION
+		// -----------------------------------
+
+		std::cout << YELLOW << "[Key bindings - SHARED]\n";
+		std::cout << "    [F1]  Toggle Rasterizer Mode (HARDWARE/SOFTWARE)\n";
+		std::cout << "    [F2]  Toggle Vehicle Rotation (ON/OFF)\n";
+		std::cout << "    [F10] Toggle Uniform ClearColor (ON/OFF)\n";
+		std::cout << "    [F11] Toggle Print FPS (ON/OFF)\n\n";
+		std::cout << GREEN << "[Key bindings - HARDWARE]\n";
+		std::cout << "    [F3]  Toggle FireFX (ON/OFF)\n";
+		std::cout << "    [F4]  Cycle Sampler State (POINT/LINEAR/ANISOTROPIC)\n\n";
+		std::cout << PURPLE << "[Key bindings - SOFTWARE]\n";
+		std::cout << "    [F5]  Cycle Shading Mode (COMBINED/OBSERVED_AREA/DIFFUSE/SPECULAR)\n";
+		std::cout << "    [F6]  Toggle NormalMap (ON/OFF)\n";
+		std::cout << "    [F7]  Toggle DepthBuffer Visualization (ON/OFF)\n";
+		std::cout << "    [F8]  Toggle BoundingBox Visualization (ON/OFF)\n\n";
+		std::cout << RESET;
 	}
 
 	Renderer::~Renderer()
@@ -124,7 +143,7 @@ namespace dae {
 		m_Camera.Update(pTimer);
 
 		const float rotationSpeed = { float(M_PI) / 4.f * pTimer->GetElapsed() };
-		if(m_EnableRotation)
+		if(m_RotationEnabled)
 			m_CurrentAngle += rotationSpeed;
 
 		if (m_DirectXEnabled)
@@ -132,9 +151,6 @@ namespace dae {
 		else
 			UpdateSoftwareRasterizer(pTimer);
 	}
-
-
-
 	void Renderer::Render()
 	{
 		if (m_DirectXEnabled)
@@ -150,13 +166,19 @@ namespace dae {
 			return;
 
 		//1. CLEAR RTV & DSV
-		ColorRGB clearColor = ColorRGB{ 0.f, 0.f, 0.3f };
+		ColorRGB clearColor = ColorRGB{ .39f, .59f, .93f };
+		if (m_ClearColorEnabled)
+			clearColor = ColorRGB{ .1f, .1f, .1f };
+
 		m_pDeviceContext->ClearRenderTargetView(m_pRenderTargetView, &clearColor.r);
 		m_pDeviceContext->ClearDepthStencilView(m_pDepthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.f, 0);
 
 		//2. SET PIPELINE + INVOKE DRAWCALLS (= RENDER)
 		for (auto& mesh : m_pHardwareMeshes)
 		{
+			if (mesh == m_pMeshFire && !m_FireFXMeshEnabled)
+				break;
+
 			mesh->Render(m_pDeviceContext);
 		}
 
@@ -169,8 +191,13 @@ namespace dae {
 		//Lock BackBuffer
 		SDL_LockSurface(m_pBackBuffer);
 
-		//Clear the BackBuffer
-		ColorRGB clearColor{ 100, 100, 100 };
+		//Clear the BackBuffer not in 255 but [0, 1]
+		ColorRGB clearColor{ .39f, .39f, .39f };
+		if (m_ClearColorEnabled)
+			clearColor = ColorRGB{ .1f, .1f, .1f };
+
+		clearColor *= 255.f;
+
 		uint32_t hexColor = 0xFF000000 | (uint32_t)clearColor.b << 8 | (uint32_t)clearColor.g << 16 | (uint32_t)clearColor.r;
 		SDL_FillRect(m_pBackBuffer, NULL, hexColor);
 
@@ -249,6 +276,18 @@ namespace dae {
 				{
 					for (int py = boundingBoxMin.y; py < boundingBoxMax.y; ++py)
 					{
+						if (m_BoundingBoxVisualizationEnabled)
+						{
+							ColorRGB finalColor{ 1.f,1.f,1.f };
+
+							m_pBackBufferPixels[px + (py * m_Width)] = SDL_MapRGB(m_pBackBuffer->format,
+								static_cast<uint8_t>(finalColor.r * 255),
+								static_cast<uint8_t>(finalColor.g * 255),
+								static_cast<uint8_t>(finalColor.b * 255));
+
+							continue;
+						}
+
 						//Make a point of the center of the current pixel
 						const Vector2 point = { float(px) + 0.5f, float(py) + 0.5f };
 
@@ -337,7 +376,15 @@ namespace dae {
 
 							// Shade your model with Lambert Diffuse
 							ColorRGB finalColor{};
-							finalColor = PixelShading(vertOut);
+							if (m_DepthBufferEnabled)
+							{
+								const float min{ 0.995f };
+								const float max{ 1.0f };
+								float depthColor = (Clamp(interpolatedDepthZ, min, max) - min) * (1.0f / (max - min));
+								finalColor = { depthColor, depthColor, depthColor };
+							}
+							else
+								finalColor = PixelShading(vertOut);
 
 							//Update Color in Buffer
 							finalColor.MaxToOne();
@@ -514,7 +561,7 @@ namespace dae {
 		//-------------------------
 		// NORMAL MAP ENABLED
 		Vector3 selectedNormal{};
-		if (m_EnableNormalMap)
+		if (m_NormalMapEnabled)
 			selectedNormal = sampleNrmlTangentSpace;
 		else
 			selectedNormal = v.normal;
@@ -596,6 +643,7 @@ namespace dae {
 		}
 	}
 
+	// SHARED
 	void Renderer::StateRasterizer()
 	{
 		std::cout << YELLOW << "**(SHARED) Rasterizer Mode = ";
@@ -614,25 +662,146 @@ namespace dae {
 	void Renderer::StateRotation()
 	{
 		std::cout << YELLOW << "**(SHARED) Vehicle Rotation ";
-		if (m_EnableRotation)
+		if (m_RotationEnabled)
 		{
 			std::cout << "OFF\n";
-			m_EnableRotation = false;
+			m_RotationEnabled = false;
 		}
 		else
 		{
 			std::cout << "ON\n";
-			m_EnableRotation = true;
+			m_RotationEnabled = true;
 		}
 		std::wcout << RESET;
 	}
-
-	void Renderer::StateTechnique()
+	void Renderer::ToggleUniformClearColor()
 	{
+		std::cout << YELLOW << "**(SHARED) Uniform ClearColor ";
+		if (m_ClearColorEnabled)
+		{
+			std::cout << "OFF\n";
+			m_ClearColorEnabled = false;
+		}
+		else
+		{
+			std::cout << "ON\n";
+			m_ClearColorEnabled = true;
+		}
+		std::wcout << RESET;
+	}
+	// ONLY HARDWARE
+	void Renderer::ToggleFireFXMesh()
+	{
+		if (!m_DirectXEnabled)
+			return;
+
+		std::cout << GREEN << "**(HARDWARE) FireFX ";
+		if (m_FireFXMeshEnabled)
+		{
+			std::cout << "OFF\n";
+			m_FireFXMeshEnabled = false;
+		}
+		else
+		{
+			std::cout << "ON\n";
+			m_FireFXMeshEnabled = true;
+		}
+		std::wcout << RESET;
+	}
+	void Renderer::CycleFilterMethods()
+	{
+		if (!m_DirectXEnabled)
+			return;
+
 		for (const auto& mesh : m_pHardwareMeshes)
 		{
 			mesh->CycleTechnique();
 		}
-	}
 
+		std::cout << GREEN << "**(HARDWARE) Sampler Filter = ";
+		m_pHardwareMeshes.at(0)->PrintFilterMethod();
+		std::wcout << RESET;
+	}
+	// ONLY SOFTWARE
+	void Renderer::CycleShadingMode()
+	{
+		if (m_DirectXEnabled)
+			return;
+
+		std::cout << PURPLE << "**(SOFTWARE) Shading Mode = ";
+		switch (m_CurrentLightingMode)
+		{
+		case LightingMode::ObservedArea:
+			m_CurrentLightingMode = LightingMode::Diffuse;
+			std::cout << "DIFFUSE\n";
+			break;
+		case LightingMode::Diffuse:
+			m_CurrentLightingMode = LightingMode::Specular;
+			std::cout << "SPECULAR\n";
+			break;
+		case LightingMode::Specular:
+			m_CurrentLightingMode = LightingMode::Combined;
+			std::cout << "COMBINED\n";
+			break;
+		case LightingMode::Combined:
+			m_CurrentLightingMode = LightingMode::ObservedArea;
+			std::cout << "OBSERVED_AREA\n";
+			break;
+		}
+		std::cout << RESET;
+	}
+	void Renderer::StateNormalMap()
+	{
+		if (m_DirectXEnabled)
+			return;
+
+		std::cout << PURPLE << "**(SOFTWARE) Normal Map ";
+		if (m_NormalMapEnabled)
+		{
+			std::cout << "OFF\n";
+			m_NormalMapEnabled = false;
+		}
+		else
+		{
+			std::cout << "ON\n";
+			m_NormalMapEnabled = true;
+		}
+		std::wcout << RESET;
+	}
+	void Renderer::ToggleDepthBuffer()
+	{
+		if (m_DirectXEnabled)
+			return;
+
+		std::cout << PURPLE << "**(SOFTWARE) DepthBuffer Visualization ";
+		if (m_DepthBufferEnabled)
+		{
+			std::cout << "OFF\n";
+			m_DepthBufferEnabled = false;
+		}
+		else
+		{
+			std::cout << "ON\n";
+			m_DepthBufferEnabled = true;
+		}
+		std::wcout << RESET;
+	}
+	void Renderer::ToggleBoundingBox()
+	{
+		if (m_DirectXEnabled)
+			return;
+
+		std::cout << PURPLE << "**(SOFTWARE) BoundingBox Visualization ";
+		if (m_BoundingBoxVisualizationEnabled)
+		{
+			std::cout << "OFF\n";
+			m_BoundingBoxVisualizationEnabled = false;
+		}
+		else
+		{
+			std::cout << "ON\n";
+			m_BoundingBoxVisualizationEnabled = true;
+		}
+		std::wcout << RESET;
+	}
 }

@@ -89,13 +89,18 @@ namespace dae
 		void Update(const Timer* pTimer)
 		{
 			const float deltaTime = pTimer->GetElapsed();
-			const float speed = 5.f;
-			const float rotationSpeed = 15.f;
+			float speed = 5.f;
+			const float rotationSpeed = 25.f;
+			const float boostMovement = 4.f;
 
 			//Keyboard Input
 			const uint8_t* pKeyboardState = SDL_GetKeyboardState(nullptr);
 
 			//Keyboard controls of the camera
+			if (pKeyboardState[SDL_SCANCODE_LSHIFT])
+			{
+				speed *= boostMovement;
+			}
 			if (pKeyboardState[SDL_SCANCODE_W] || pKeyboardState[SDL_SCANCODE_UP])
 			{
 				origin.z += speed * deltaTime;

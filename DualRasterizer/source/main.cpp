@@ -7,7 +7,13 @@
 #undef main
 #include "Renderer.h"
 
+// TEXT COLORS
+#define RESET   "\033[0m" 
+#define YELLOW  "\033[33m"       
+
 using namespace dae;
+
+bool g_PrintFPS = { false };
 
 void ShutDown(SDL_Window* pWindow)
 {
@@ -61,8 +67,31 @@ int main(int argc, char* args[])
 					pRenderer->StateRasterizer();
 				else if (e.key.keysym.scancode == SDL_SCANCODE_F2)
 					pRenderer->StateRotation();
+				else if (e.key.keysym.scancode == SDL_SCANCODE_F10)
+					pRenderer->ToggleUniformClearColor();
+				else if (e.key.keysym.scancode == SDL_SCANCODE_F11)
+				{
+					std::cout << YELLOW << "**(SHARED) Print FPS ";
+					g_PrintFPS = !g_PrintFPS;
+					if (g_PrintFPS)
+						std::cout << "ON\n";
+					else
+						std::cout << "OFF\n";
+
+					std::cout << RESET;
+				}
+				else if (e.key.keysym.scancode == SDL_SCANCODE_F3)
+					pRenderer->ToggleFireFXMesh();
+				else if (e.key.keysym.scancode == SDL_SCANCODE_F4)
+					pRenderer->CycleFilterMethods();
 				else if (e.key.keysym.scancode == SDL_SCANCODE_F5)
-					pRenderer->StateTechnique();
+					pRenderer->CycleShadingMode();
+				else if (e.key.keysym.scancode == SDL_SCANCODE_F6)
+					pRenderer->StateNormalMap();
+				else if (e.key.keysym.scancode == SDL_SCANCODE_F7)
+					pRenderer->ToggleDepthBuffer();
+				else if (e.key.keysym.scancode == SDL_SCANCODE_F8)
+					pRenderer->ToggleBoundingBox();
 				break;
 			default: ;
 			}
@@ -76,11 +105,14 @@ int main(int argc, char* args[])
 
 		//--------- Timer ---------
 		pTimer->Update();
-		printTimer += pTimer->GetElapsed();
-		if (printTimer >= 1.f)
+		if(g_PrintFPS)
 		{
-			printTimer = 0.f;
-			std::cout << "dFPS: " << pTimer->GetdFPS() << std::endl;
+			printTimer += pTimer->GetElapsed();
+			if (printTimer >= 1.f)
+			{
+				printTimer = 0.f;
+				std::cout << "dFPS: " << pTimer->GetdFPS() << std::endl;
+			}
 		}
 	}
 	pTimer->Stop();

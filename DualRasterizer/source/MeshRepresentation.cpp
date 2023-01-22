@@ -124,3 +124,8 @@ void MeshRepresentation::Translation(float x, float y, float z)
 {
 	m_TranslationMatrix = Matrix::CreateTranslation(x, y, z);
 }
+
+void MeshRepresentation::PrintFilterMethod() const
+{
+	m_pEffect->PrintFilterMethod();
+}

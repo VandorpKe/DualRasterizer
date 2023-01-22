@@ -21,3 +21,21 @@ struct Vertex_Out
 	Vector3 tangent{};
 	Vector3 viewDirection{};
 };
+
+// From software rasterizer
+enum class PrimitiveTopology
+{
+	TriangleList,
+	TriangleStrip
+};
+
+// From software rasterizer
+struct Mesh
+{
+	std::vector<Vertex> vertices{};
+	std::vector<uint32_t> indices{};
+	PrimitiveTopology primitiveTopology{ PrimitiveTopology::TriangleStrip };
+
+	std::vector<Vertex_Out> vertices_out{};
+	Matrix worldMatrix{};
+};

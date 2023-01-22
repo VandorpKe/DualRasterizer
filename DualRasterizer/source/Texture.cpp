@@ -40,6 +40,12 @@ namespace dae
 		m_pSurfacePixels = (uint32_t*)m_pSurface->pixels;
 	}
 
+	Texture::Texture(SDL_Surface* pSurface)
+	{
+		m_pSurface = pSurface;
+		m_pSurfacePixels = (uint32_t*)pSurface->pixels;
+	}
+
 	Texture::~Texture()
 	{
 		if (m_pSRV) m_pSRV->Release();
@@ -71,4 +77,16 @@ namespace dae
 		return ColorRGB{ r / 255.f, g / 255.f, b / 255.f };
 	}
 
+	Texture* Texture::LoadFromFile(const std::string& path)
+	{
+		//Load SDL_Surface using IMG_LOAD
+		const auto sdl_surface = IMG_Load(path.c_str());
+		if (sdl_surface == nullptr)
+			return nullptr;
+
+		//Create & Return a new Texture Object (using SDL_Surface)
+		Texture* textureObj = new Texture{ sdl_surface };
+
+		return textureObj;
+	}
 }

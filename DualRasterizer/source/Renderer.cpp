@@ -5,15 +5,25 @@
 #include "FullShaderEffect.h"
 #include "Texture.h"
 
+// TEXT COLORS
+#define RESET   "\033[0m" 
+#define GREEN   "\033[32m"     
+#define YELLOW  "\033[33m"       
+#define MAGENTA "\033[35m" 
+
 namespace dae {
 
 	Renderer::Renderer(SDL_Window* pWindow) :
 		m_pWindow(pWindow)
 	{
-		//Initialize
+		// UNI INITIALIZE
 		SDL_GetWindowSize(pWindow, &m_Width, &m_Height);
+		// CAMERA
+		m_Camera.Initialize(45.f, { 0.f, 0.f, 0.f }, (float)m_Width / m_Height);
 
-		//Initialize DirectX pipeline
+		// -----------------------------------
+		// X INITIALIZE DIRECTX PIPELINE
+		// -----------------------------------
 		const HRESULT result = InitializeDirectX();
 		if (result == S_OK)
 		{
@@ -25,14 +35,11 @@ namespace dae {
 			std::cout << "DirectX initialization failed!\n";
 		}
 
-		// CAMERA
-		m_Camera.Initialize(45.f, { 0.f, 0.f, 0.f }, (float)m_Width / m_Height);
-
 		// VEHICLE
-		m_pDiffuseTexture = new Texture{ "Resources/vehicle_diffuse.png", m_pDevice };
-		m_pGlossTexture = new Texture{ "Resources/vehicle_gloss.png", m_pDevice };
-		m_pNormalTexture = new Texture{ "Resources/vehicle_normal.png", m_pDevice };
-		m_pSpecularTexture = new Texture{ "Resources/vehicle_specular.png", m_pDevice };
+		Texture* pDiffuseTexture = new Texture{ "Resources/vehicle_diffuse.png", m_pDevice };
+		Texture* pGlossTexture = new Texture{ "Resources/vehicle_gloss.png", m_pDevice };
+		Texture* pNormalTexture = new Texture{ "Resources/vehicle_normal.png", m_pDevice };
+		Texture* pSpecularTexture = new Texture{ "Resources/vehicle_specular.png", m_pDevice };
 
 		std::vector<Vertex> verticesVehicle;
 		std::vector<uint32_t> indicesVehicle;
@@ -40,18 +47,18 @@ namespace dae {
 			std::wcout << L"Invalid filepath\n";
 
 		FullShaderEffect* pFullShaderEffect{ new FullShaderEffect(m_pDevice, L"Resources/PosCol3D.fx") };
-		pFullShaderEffect->SetNormalMap(m_pNormalTexture);
-		pFullShaderEffect->SetGlossinessMap(m_pGlossTexture);
-		pFullShaderEffect->SetSpecularMap(m_pSpecularTexture);
-		pFullShaderEffect->SetDiffuseMap(m_pDiffuseTexture);
+		pFullShaderEffect->SetNormalMap(pNormalTexture);
+		pFullShaderEffect->SetGlossinessMap(pGlossTexture);
+		pFullShaderEffect->SetSpecularMap(pSpecularTexture);
+		pFullShaderEffect->SetDiffuseMap(pDiffuseTexture);
 
 		auto* pMeshVehicle = new MeshRepresentation{ m_pDevice, verticesVehicle, indicesVehicle, pFullShaderEffect };
-		m_pMeshes.push_back(pMeshVehicle);
+		m_pHardwareMeshes.push_back(pMeshVehicle);
 
 		// FIRE
 		Effect* pFireEffect{ new Effect(m_pDevice, L"Resources/Transparent3D.fx") };
-		m_pFireTexture = new Texture{ "Resources/fireFX_diffuse.png", m_pDevice };
-		pFireEffect->SetDiffuseMap(m_pFireTexture);
+		Texture* pFireTexture = new Texture{ "Resources/fireFX_diffuse.png", m_pDevice };
+		pFireEffect->SetDiffuseMap(pFireTexture);
 
 		std::vector<Vertex> verticesFire;
 		std::vector<uint32_t> indicesFire;
@@ -59,16 +66,37 @@ namespace dae {
 			std::wcout << L"Invalid filepath\n";
 
 		auto* pMeshFire = new MeshRepresentation{ m_pDevice, verticesFire, indicesFire, pFireEffect };
-		m_pMeshes.push_back(pMeshFire);
+		m_pHardwareMeshes.push_back(pMeshFire);
+
+		// -----------------------------------
+		// X INITIALIZE SOFTWARE RASTERIZER PIPELINE
+		// -----------------------------------
+
+		//Create Buffers
+		m_pFrontBuffer = SDL_GetWindowSurface(pWindow);
+		m_pBackBuffer = SDL_CreateRGBSurface(0, m_Width, m_Height, 32, 0, 0, 0, 0);
+		m_pBackBufferPixels = (uint32_t*)m_pBackBuffer->pixels;
+
+		m_pDepthBufferPixels = new float[m_Width * m_Height];
+
+		m_pDiffuseTexture = Texture::LoadFromFile("Resources/vehicle_diffuse.png");		// Texture diffuse of the vehicle
+		m_pNormalTexture = Texture::LoadFromFile("Resources/vehicle_normal.png");			// Normal map of the vehicle
+		m_pGlossTexture = Texture::LoadFromFile("Resources/vehicle_gloss.png");			// Gloss map of the vehicle
+		m_pSpecularTexture = Texture::LoadFromFile("Resources/vehicle_specular.png");		// Specular map of the vehicle
+
+		Mesh& vehicleMesh = m_SoftwareMeshes.emplace_back(Mesh{});
+		vehicleMesh.primitiveTopology = PrimitiveTopology::TriangleList;
+		Utils::ParseOBJ("Resources/vehicle.obj", vehicleMesh.vertices, vehicleMesh.indices);
 	}
 
 	Renderer::~Renderer()
 	{
-		for(auto& mesh : m_pMeshes)
+		// DirectX
+		for(auto& mesh : m_pHardwareMeshes)
 		{
 			delete mesh;
 		}
-		m_pMeshes.clear();
+		m_pHardwareMeshes.clear();
 
 		if (m_pRenderTargetView) m_pRenderTargetView->Release();
 		if (m_pRenderTargetBuffer) m_pRenderTargetBuffer->Release();
@@ -82,6 +110,13 @@ namespace dae {
 			m_pDeviceContext->Release();
 		}
 		if (m_pDevice) m_pDevice->Release();
+
+		// Software Rasterizer
+		delete[] m_pDepthBufferPixels;
+		delete m_pDiffuseTexture;
+		delete m_pNormalTexture;
+		delete m_pGlossTexture;
+		delete m_pSpecularTexture;
 	}
 
 	void Renderer::Update(const Timer* pTimer)
@@ -90,12 +125,9 @@ namespace dae {
 
 		const float rotationSpeed = { float(M_PI) / 4.f * pTimer->GetElapsed() };
 		if(m_EnableRotation)
-		{
 			m_CurrentAngle += rotationSpeed;
-			std::cout << "Updating rotation\n";
-		}
 
-		for(auto& mesh : m_pMeshes)
+		for(auto& mesh : m_pHardwareMeshes)
 		{
 			mesh->RotateY(m_CurrentAngle);
 			mesh->Translation(0, 0, 50);
@@ -110,19 +142,32 @@ namespace dae {
 		if (!m_IsInitialized)
 			return;
 
+		if (m_DirectXEnabled)
+			RenderHardwareRasterizer();
+		else
+			RenderSoftwareRasterizer();
+	}
+
+	void Renderer::RenderHardwareRasterizer() const
+	{
 		//1. CLEAR RTV & DSV
-		ColorRGB clearColor = ColorRGB{0.f, 0.f, 0.3f}; 
-		m_pDeviceContext->ClearRenderTargetView(m_pRenderTargetView,&clearColor.r);
+		ColorRGB clearColor = ColorRGB{ 0.f, 0.f, 0.3f };
+		m_pDeviceContext->ClearRenderTargetView(m_pRenderTargetView, &clearColor.r);
 		m_pDeviceContext->ClearDepthStencilView(m_pDepthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.f, 0);
 
 		//2. SET PIPELINE + INVOKE DRAWCALLS (= RENDER)
-		for (auto& mesh : m_pMeshes)
+		for (auto& mesh : m_pHardwareMeshes)
 		{
 			mesh->Render(m_pDeviceContext);
 		}
-		
+
 		//3. PRESENT BACKBUFFER (SWAP)
 		m_pSwapChain->Present(0, 0);
+	}
+
+	void Renderer::RenderSoftwareRasterizer() const
+	{
+
 	}
 
 	HRESULT Renderer::InitializeDirectX()
@@ -299,9 +344,25 @@ namespace dae {
 		}
 	}
 
+	void Renderer::StateRasterizer()
+	{
+		std::cout << YELLOW << "**(SHARED) Rasterizer Mode = ";
+		if (m_DirectXEnabled)
+		{
+			std::cout << "SOFTWARE\n";
+			m_DirectXEnabled = false;
+		}
+		else
+		{
+			std::cout << "HARDWARE\n";
+			m_DirectXEnabled = true;
+		}
+		std::cout << RESET;
+	}
+
 	void Renderer::StateTechnique()
 	{
-		for (const auto& mesh : m_pMeshes)
+		for (const auto& mesh : m_pHardwareMeshes)
 		{
 			mesh->CycleTechnique();
 		}

@@ -5,6 +5,7 @@
 struct SDL_Window;
 struct SDL_Surface;
 struct Vertex_Out;
+struct Mesh;
 class MeshRepresentation;
 
 namespace dae
@@ -23,9 +24,13 @@ namespace dae
 		void Update(const Timer* pTimer);
 		void Render() const;
 
+		void RenderHardwareRasterizer() const;
+		void RenderSoftwareRasterizer() const;
+
 		ColorRGB PixelShading(const Vertex_Out& v);
 
 		// KEYS
+		void StateRasterizer(); // F1
 		void StateTechnique();
 		void StateRotation();
 	private:
@@ -38,7 +43,23 @@ namespace dae
 
 		Camera m_Camera{};
 
-		//DIRECTX
+		// SELECTION STATE
+		bool m_EnableNormalMap = { true };
+		bool m_EnableRotation = { true };
+		bool m_DirectXEnabled = { true };
+		enum class LightingMode
+		{
+			ObservedArea,	//Lambert Cosine Law
+			Diffuse,		//Lambert material
+			Specular,		//Glossines
+			Combined		//ObservedArea * Diffuse * Specular
+		};
+		LightingMode m_CurrentLightingMode = LightingMode::Combined;
+
+		// -----------------------------------
+		// X DIRECTX
+		// -----------------------------------
+
 		HRESULT InitializeDirectX();
 		ID3D11Device* m_pDevice;
 		ID3D11DeviceContext* m_pDeviceContext;
@@ -49,7 +70,7 @@ namespace dae
 		ID3D11RenderTargetView* m_pRenderTargetView;
 
 		// MESH
-		std::vector<MeshRepresentation*> m_pMeshes;
+		std::vector<MeshRepresentation*> m_pHardwareMeshes;
 		float m_CurrentAngle = { 0.f };
 
 		Texture* m_pDiffuseTexture;
@@ -58,16 +79,16 @@ namespace dae
 		Texture* m_pSpecularTexture;
 		Texture* m_pFireTexture;
 
-		// SELECTION STATE
-		bool m_EnableNormalMap = { true };
-		bool m_EnableRotation = { true };
-		enum class LightingMode
-		{
-			ObservedArea,	//Lambert Cosine Law
-			Diffuse,		//Lambert material
-			Specular,		//Glossines
-			Combined		//ObservedArea * Diffuse * Specular
-		};
-		LightingMode m_CurrentLightingMode = LightingMode::Combined;
+		// -----------------------------------
+		// X SOFTWARE RASTERIZER
+		// -----------------------------------
+
+		SDL_Surface* m_pFrontBuffer{ nullptr };
+		SDL_Surface* m_pBackBuffer{ nullptr };
+		uint32_t* m_pBackBufferPixels{};
+
+		float* m_pDepthBufferPixels{};
+
+		std::vector<Mesh> m_SoftwareMeshes;
 	};
 }

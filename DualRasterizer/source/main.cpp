@@ -57,7 +57,9 @@ int main(int argc, char* args[])
 				break;
 			case SDL_KEYUP:
 				//Test for a key
-				if (e.key.keysym.scancode == SDL_SCANCODE_F2)
+				if (e.key.keysym.scancode == SDL_SCANCODE_F1)
+					pRenderer->StateRasterizer();
+				else if (e.key.keysym.scancode == SDL_SCANCODE_F2)
 					pRenderer->StateTechnique();
 				else if (e.key.keysym.scancode == SDL_SCANCODE_F5)
 					pRenderer->StateRotation();

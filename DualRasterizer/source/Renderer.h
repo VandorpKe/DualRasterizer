@@ -22,12 +22,18 @@ namespace dae
 		Renderer& operator=(Renderer&&) noexcept = delete;
 
 		void Update(const Timer* pTimer);
-		void Render() const;
+		void Render();
 
 		void RenderHardwareRasterizer() const;
-		void RenderSoftwareRasterizer() const;
+		void RenderSoftwareRasterizer();
 
-		ColorRGB PixelShading(const Vertex_Out& v);
+		void UpdateHardwareRasterizer(const Timer* pTimer);
+		void UpdateSoftwareRasterizer(const Timer* pTimer);
+
+		// Software Rasterizer
+		ColorRGB PixelShading(const Vertex_Out& v)const;
+		void VertexTransformationFunctionW3(std::vector<Mesh>& meshes) const;
+
 
 		// KEYS
 		void StateRasterizer(); // F1

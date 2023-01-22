@@ -36,10 +36,10 @@ namespace dae {
 		}
 
 		// VEHICLE
-		Texture* pDiffuseTexture = new Texture{ "Resources/vehicle_diffuse.png", m_pDevice };
-		Texture* pGlossTexture = new Texture{ "Resources/vehicle_gloss.png", m_pDevice };
-		Texture* pNormalTexture = new Texture{ "Resources/vehicle_normal.png", m_pDevice };
-		Texture* pSpecularTexture = new Texture{ "Resources/vehicle_specular.png", m_pDevice };
+		Texture pDiffuseTexture = { "Resources/vehicle_diffuse.png", m_pDevice };
+		Texture pGlossTexture = { "Resources/vehicle_gloss.png", m_pDevice };
+		Texture pNormalTexture = { "Resources/vehicle_normal.png", m_pDevice };
+		Texture pSpecularTexture = { "Resources/vehicle_specular.png", m_pDevice };
 
 		std::vector<Vertex> verticesVehicle;
 		std::vector<uint32_t> indicesVehicle;
@@ -47,10 +47,10 @@ namespace dae {
 			std::wcout << L"Invalid filepath\n";
 
 		FullShaderEffect* pFullShaderEffect{ new FullShaderEffect(m_pDevice, L"Resources/PosCol3D.fx") };
-		pFullShaderEffect->SetNormalMap(pNormalTexture);
-		pFullShaderEffect->SetGlossinessMap(pGlossTexture);
-		pFullShaderEffect->SetSpecularMap(pSpecularTexture);
-		pFullShaderEffect->SetDiffuseMap(pDiffuseTexture);
+		pFullShaderEffect->SetNormalMap(&pNormalTexture);
+		pFullShaderEffect->SetGlossinessMap(&pGlossTexture);
+		pFullShaderEffect->SetSpecularMap(&pSpecularTexture);
+		pFullShaderEffect->SetDiffuseMap(&pDiffuseTexture);
 
 		auto* pMeshVehicle = new MeshRepresentation{ m_pDevice, verticesVehicle, indicesVehicle, pFullShaderEffect };
 		m_pHardwareMeshes.push_back(pMeshVehicle);
@@ -127,29 +127,28 @@ namespace dae {
 		if(m_EnableRotation)
 			m_CurrentAngle += rotationSpeed;
 
-		for(auto& mesh : m_pHardwareMeshes)
-		{
-			mesh->RotateY(m_CurrentAngle);
-			mesh->Translation(0, 0, 50);
-			mesh->Update(m_Camera.GetWorldViewProjection(), m_Camera.GetInverseViewMatrix());
-		}
+		if (m_DirectXEnabled)
+			UpdateHardwareRasterizer(pTimer);
+		else
+			UpdateSoftwareRasterizer(pTimer);
 	}
 
 
 
-	void Renderer::Render() const
+	void Renderer::Render()
 	{
-		if (!m_IsInitialized)
-			return;
-
 		if (m_DirectXEnabled)
 			RenderHardwareRasterizer();
 		else
 			RenderSoftwareRasterizer();
 	}
 
+	// RENDER
 	void Renderer::RenderHardwareRasterizer() const
 	{
+		if (!m_IsInitialized)
+			return;
+
 		//1. CLEAR RTV & DSV
 		ColorRGB clearColor = ColorRGB{ 0.f, 0.f, 0.3f };
 		m_pDeviceContext->ClearRenderTargetView(m_pRenderTargetView, &clearColor.r);
@@ -164,10 +163,220 @@ namespace dae {
 		//3. PRESENT BACKBUFFER (SWAP)
 		m_pSwapChain->Present(0, 0);
 	}
-
-	void Renderer::RenderSoftwareRasterizer() const
+	void Renderer::RenderSoftwareRasterizer()
 	{
+		//@START
+		//Lock BackBuffer
+		SDL_LockSurface(m_pBackBuffer);
 
+		//Clear the BackBuffer
+		ColorRGB clearColor{ 100, 100, 100 };
+		uint32_t hexColor = 0xFF000000 | (uint32_t)clearColor.b << 8 | (uint32_t)clearColor.g << 16 | (uint32_t)clearColor.r;
+		SDL_FillRect(m_pBackBuffer, NULL, hexColor);
+
+		//std::fill_n EXPLAINED
+		//1st parameter: beginning of the range of elements to modify
+		//2nd parameter: number of elements to be modified
+		//3rd parameter: the value to be assigned
+		std::fill_n(m_pDepthBufferPixels, m_Width * m_Height, FLT_MAX);
+
+		VertexTransformationFunctionW3(m_SoftwareMeshes);
+
+		//Iterates over every mesh
+		for (auto& mesh : m_SoftwareMeshes)
+		{
+			int incr = { 3 };
+			if (mesh.primitiveTopology == PrimitiveTopology::TriangleStrip)
+				incr = 1;
+
+			//Supports multiple triangles
+			//indices.size() - 2 => Otherwise index will go out of bounds in 'idxB' and 'idxC' 
+			for (int idx = 0; idx < mesh.indices.size() - 2; idx += incr)
+			{
+				auto idxA = mesh.indices[idx + 0];
+				auto idxB = mesh.indices[idx + 1];
+				auto idxC = mesh.indices[idx + 2];
+
+				//Skip degenerate triangles
+				if (idxA == idxB || idxB == idxC || idxC == idxA)
+					continue;
+
+				//Check if triangle is odd
+				//When odd, swap vertices B and C
+				if (idx % 2 != 0 && mesh.primitiveTopology == PrimitiveTopology::TriangleStrip)
+					std::swap(idxB, idxC);
+
+				//Frustum Culling
+				//Vertex 0 - Check if x & y are inside [-1, 1] and z inside [0, 1] => DirectX convention
+				if ((mesh.vertices_out[idxA].position.x < -1.f || mesh.vertices_out[idxA].position.x > 1.f) &&
+					(mesh.vertices_out[idxB].position.x < -1.f || mesh.vertices_out[idxB].position.x > 1.f) &&
+					(mesh.vertices_out[idxC].position.x < -1.f || mesh.vertices_out[idxC].position.x > 1.f))
+					continue;
+				if ((mesh.vertices_out[idxA].position.y < -1.f || mesh.vertices_out[idxA].position.y > 1.f) &&
+					(mesh.vertices_out[idxB].position.y < -1.f || mesh.vertices_out[idxB].position.y > 1.f) &&
+					(mesh.vertices_out[idxC].position.y < -1.f || mesh.vertices_out[idxC].position.y > 1.f))
+					continue;
+				if (mesh.vertices_out[idxA].position.z < 0.f || mesh.vertices_out[idxA].position.z > 1.f ||
+					mesh.vertices_out[idxB].position.z < 0.f || mesh.vertices_out[idxB].position.z > 1.f ||
+					mesh.vertices_out[idxC].position.z < 0.f || mesh.vertices_out[idxC].position.z > 1.f)
+					continue;
+
+				// Move from NDC to Raster Space - not a part of the projection stage
+				mesh.vertices_out[idxA].position.x = ((mesh.vertices_out[idxA].position.x + 1) / 2.f) * float(m_Width);
+				mesh.vertices_out[idxA].position.y = ((1 - mesh.vertices_out[idxA].position.y) / 2.f) * float(m_Height);
+				mesh.vertices_out[idxB].position.x = ((mesh.vertices_out[idxB].position.x + 1) / 2.f) * float(m_Width);
+				mesh.vertices_out[idxB].position.y = ((1 - mesh.vertices_out[idxB].position.y) / 2.f) * float(m_Height);
+				mesh.vertices_out[idxC].position.x = ((mesh.vertices_out[idxC].position.x + 1) / 2.f) * float(m_Width);
+				mesh.vertices_out[idxC].position.y = ((1 - mesh.vertices_out[idxC].position.y) / 2.f) * float(m_Height);
+
+				//Get the bounding box TOP LEFT point
+				Vector2 boundingBoxMin{};
+				boundingBoxMin.x = std::min(mesh.vertices_out[idxA].position.x, std::min(mesh.vertices_out[idxB].position.x, mesh.vertices_out[idxC].position.x));
+				boundingBoxMin.y = std::min(mesh.vertices_out[idxA].position.y, std::min(mesh.vertices_out[idxB].position.y, mesh.vertices_out[idxC].position.y));
+				//Clamp is needed otherwise the image will repeat itself
+				boundingBoxMin.x = Clamp(boundingBoxMin.x, 0.f, float(m_Width));
+				boundingBoxMin.y = Clamp(boundingBoxMin.y, 0.f, float(m_Height));
+				//Get the bounding box LOWER RIGHT point
+				Vector2 boundingBoxMax{};
+				boundingBoxMax.x = std::max(mesh.vertices_out[idxA].position.x, std::max(mesh.vertices_out[idxB].position.x, mesh.vertices_out[idxC].position.x));
+				boundingBoxMax.y = std::max(mesh.vertices_out[idxA].position.y, std::max(mesh.vertices_out[idxB].position.y, mesh.vertices_out[idxC].position.y));
+				//Clamp is needed otherwise the image will repeat itself
+				boundingBoxMax.x = Clamp(boundingBoxMax.x, 0.f, float(m_Width));
+				boundingBoxMax.y = Clamp(boundingBoxMax.y, 0.f, float(m_Height));
+
+				//RENDER LOGIC
+				for (int px = boundingBoxMin.x; px < boundingBoxMax.x; ++px)
+				{
+					for (int py = boundingBoxMin.y; py < boundingBoxMax.y; ++py)
+					{
+						//Make a point of the center of the current pixel
+						const Vector2 point = { float(px) + 0.5f, float(py) + 0.5f };
+
+						//Make vectors from the point on the triangle to the point that you want to check
+						const Vector2 AP = point - mesh.vertices_out[idxA].position.GetXY();
+						const Vector2 BP = point - mesh.vertices_out[idxB].position.GetXY();
+						const Vector2 CP = point - mesh.vertices_out[idxC].position.GetXY();
+
+						//Make vectors [AB], [BC] & [CB]
+						const Vector2 AB = mesh.vertices_out[idxA].position.GetXY() - mesh.vertices_out[idxB].position.GetXY();
+						const Vector2 BC = mesh.vertices_out[idxB].position.GetXY() - mesh.vertices_out[idxC].position.GetXY();
+						const Vector2 CA = mesh.vertices_out[idxC].position.GetXY() - mesh.vertices_out[idxA].position.GetXY();
+
+						//Calculate the cross product from each pointOfTriangle to the point
+						const float signedParallelogramAB = Vector2::Cross(AP, AB);
+						const float signedParallelogramBC = Vector2::Cross(BP, BC);
+						const float signedParallelogramCA = Vector2::Cross(CP, CA);
+
+						//Get the total area of the triangle - '-CA' to have [AB] X [AC]
+						const float totalAreaTriangle = Vector2::Cross(AB, -CA);
+
+						//If the cross products each have the same sign, then 'point' is in the triangle
+						if (signedParallelogramAB > 0 && signedParallelogramBC > 0 && signedParallelogramCA > 0)
+						{
+							//Value gives back how much of the triangle's area covers the total triangle
+							const float weightA = signedParallelogramBC / totalAreaTriangle;
+							const float weightB = signedParallelogramCA / totalAreaTriangle;
+							const float weightC = signedParallelogramAB / totalAreaTriangle;
+							//Total weight should be 1 - otherwise somethings wrong
+
+							//DEPTH TEST
+							//ZbufferValue - non-linear
+							const float interpolatedDepthZ = { 1 / (
+								(1 / mesh.vertices_out[idxA].position.z * weightA) +
+								(1 / mesh.vertices_out[idxB].position.z * weightB) +
+								(1 / mesh.vertices_out[idxC].position.z * weightC)) };
+
+							if (interpolatedDepthZ > m_pDepthBufferPixels[px + (py * m_Width)])
+								continue;
+
+							m_pDepthBufferPixels[px + (py * m_Width)] = interpolatedDepthZ;
+
+							//RASTERIZATION STAGE
+							//Transform all necessary attributes accordingly, interpolate and store them in the vertex output
+
+							//WbufferValue - linear
+							//When When we want to interpolate vertex attributes with a correct depth (color, uv, normals,
+							//etc), we still use the View Space depth Vw
+							const float interpolatedDepthW = { 1 / (
+								(1 / mesh.vertices_out[idxA].position.w * weightA) +
+								(1 / mesh.vertices_out[idxB].position.w * weightB) +
+								(1 / mesh.vertices_out[idxC].position.w * weightC)) };
+
+							//Divide each attribute by the original vertex depth and interpolate 
+							const Vector2 interpolatedUV = { (
+								mesh.vertices_out[idxA].uv / mesh.vertices_out[idxA].position.w * weightA +
+								mesh.vertices_out[idxB].uv / mesh.vertices_out[idxB].position.w * weightB +
+								mesh.vertices_out[idxC].uv / mesh.vertices_out[idxC].position.w * weightC) * interpolatedDepthW };
+							const ColorRGB interpolatedColor = { (
+								mesh.vertices_out[idxA].color / mesh.vertices_out[idxA].position.w * weightA +
+								mesh.vertices_out[idxB].color / mesh.vertices_out[idxB].position.w * weightB +
+								mesh.vertices_out[idxC].color / mesh.vertices_out[idxC].position.w * weightC) * interpolatedDepthW };
+							const Vector3 interpolatedNormal = { (
+								mesh.vertices_out[idxA].normal / mesh.vertices_out[idxA].position.w * weightA +
+								mesh.vertices_out[idxB].normal / mesh.vertices_out[idxB].position.w * weightB +
+								mesh.vertices_out[idxC].normal / mesh.vertices_out[idxC].position.w * weightC) * interpolatedDepthW };
+							const Vector3 interpolatedTangent = { (
+								mesh.vertices_out[idxA].tangent / mesh.vertices_out[idxA].position.w * weightA +
+								mesh.vertices_out[idxB].tangent / mesh.vertices_out[idxB].position.w * weightB +
+								mesh.vertices_out[idxC].tangent / mesh.vertices_out[idxC].position.w * weightC) * interpolatedDepthW };
+							const Vector3 interpolatedViewDir = { (
+								mesh.vertices_out[idxA].viewDirection / mesh.vertices_out[idxA].position.w * weightA +
+								mesh.vertices_out[idxB].viewDirection / mesh.vertices_out[idxB].position.w * weightB +
+								mesh.vertices_out[idxC].viewDirection / mesh.vertices_out[idxC].position.w * weightC) * interpolatedDepthW };
+
+							Vertex_Out vertOut{};
+							vertOut.position.x = px;
+							vertOut.position.y = py;
+							vertOut.position.z = interpolatedDepthZ;
+							vertOut.position.w = interpolatedDepthW;
+							vertOut.uv = interpolatedUV;
+							vertOut.color = interpolatedColor;
+							vertOut.normal = interpolatedNormal.Normalized();
+							vertOut.tangent = interpolatedTangent.Normalized();
+							vertOut.viewDirection = interpolatedViewDir.Normalized();
+
+							// Shade your model with Lambert Diffuse
+							ColorRGB finalColor{};
+							finalColor = PixelShading(vertOut);
+
+							//Update Color in Buffer
+							finalColor.MaxToOne();
+
+							m_pBackBufferPixels[px + (py * m_Width)] = SDL_MapRGB(m_pBackBuffer->format,
+								static_cast<uint8_t>(finalColor.r * 255),
+								static_cast<uint8_t>(finalColor.g * 255),
+								static_cast<uint8_t>(finalColor.b * 255));
+						}
+					}
+				}
+			}
+		}
+
+
+		//@END
+		//Update SDL Surface
+		SDL_UnlockSurface(m_pBackBuffer);
+		SDL_BlitSurface(m_pBackBuffer, 0, m_pFrontBuffer, 0);
+		SDL_UpdateWindowSurface(m_pWindow);
+
+	}
+
+	// UPDATE
+	void Renderer::UpdateHardwareRasterizer(const Timer* pTimer)
+	{
+		for (auto& mesh : m_pHardwareMeshes)
+		{
+			mesh->RotateY(m_CurrentAngle);
+			mesh->Translation(0, 0, 50);
+			mesh->Update(m_Camera.GetWorldViewProjection(), m_Camera.GetInverseViewMatrix());
+		}
+	}
+	void Renderer::UpdateSoftwareRasterizer(const Timer* pTimer)
+	{
+		for (auto& mesh : m_SoftwareMeshes)
+		{
+			mesh.worldMatrix = Matrix::CreateRotationY(m_CurrentAngle) * Matrix::CreateTranslation(0.f, 0.f, 50.f);
+		}
 	}
 
 	HRESULT Renderer::InitializeDirectX()
@@ -276,9 +485,8 @@ namespace dae {
 		return result;
 	}
 
-
 	// From software rasterizer
-	ColorRGB Renderer::PixelShading(const Vertex_Out& v)
+	ColorRGB Renderer::PixelShading(const Vertex_Out& v) const
 	{
 		const Vector3 lightDirection = { .577f, -.577f, .577f };
 		// Diffuse Reflection Coefficient
@@ -343,6 +551,50 @@ namespace dae {
 			return finalColor *= lambertDiffuseColor + specReflectance + ambient;
 		}
 	}
+	void Renderer::VertexTransformationFunctionW3(std::vector<Mesh>& meshes) const
+	{
+		for (auto& mesh : meshes)
+		{
+			Matrix worldViewProjectionMatrix = { mesh.worldMatrix * m_Camera.viewMatrix * m_Camera.projectionMatrix };
+
+			// If you want to change the vertices to for example rotate the mesh,
+			// you first have to get out the old values.
+			mesh.vertices_out.clear();
+			mesh.vertices_out.reserve(mesh.vertices.size());
+
+			for (const Vertex& vertex : mesh.vertices)
+			{
+				//Multiply every vertex with this matrix, which is the same for all vertices within one mesh!
+				Vector4 viewSpaceVertex = worldViewProjectionMatrix.TransformPoint({ vertex.position, 1 });
+
+				// Conversion of the normal and tangent from viewspace to world space
+				// This is for the rotation
+				const Vector3 normal = { mesh.worldMatrix.TransformVector(vertex.normal).Normalized() };
+				const Vector3 tangent = { mesh.worldMatrix.TransformVector(vertex.tangent).Normalized() };
+
+				//Conversion to NDC - Perspective Divide (perspective distortion)
+				viewSpaceVertex.x /= viewSpaceVertex.w;
+				viewSpaceVertex.y /= viewSpaceVertex.w;
+				viewSpaceVertex.z /= viewSpaceVertex.w;
+				viewSpaceVertex.w = viewSpaceVertex.w;
+
+				// Calculate the vertex world position to World Space
+				const Vector3 vertexWorldPos = { mesh.worldMatrix.TransformPoint(vertex.position) };
+				// Calculate the viewDirection
+				const Vector3 viewDirection = { m_Camera.origin - vertexWorldPos };
+
+				//Convert to Screen Space
+				Vertex_Out NdcSpaceVertex{};
+				NdcSpaceVertex.position = viewSpaceVertex;			// Copy the position
+				NdcSpaceVertex.uv = vertex.uv;						// Copy the UV
+				NdcSpaceVertex.normal = normal;						// Put in the transformed normal
+				NdcSpaceVertex.tangent = tangent;					// Put in the transformed tangent
+				NdcSpaceVertex.viewDirection = viewDirection;		// Put in the transformed viewDirection
+
+				mesh.vertices_out.emplace_back(NdcSpaceVertex);
+			}
+		}
+	}
 
 	void Renderer::StateRasterizer()
 	{
@@ -359,6 +611,21 @@ namespace dae {
 		}
 		std::cout << RESET;
 	}
+	void Renderer::StateRotation()
+	{
+		std::cout << YELLOW << "**(SHARED) Vehicle Rotation ";
+		if (m_EnableRotation)
+		{
+			std::cout << "OFF\n";
+			m_EnableRotation = false;
+		}
+		else
+		{
+			std::cout << "ON\n";
+			m_EnableRotation = true;
+		}
+		std::wcout << RESET;
+	}
 
 	void Renderer::StateTechnique()
 	{
@@ -368,13 +635,4 @@ namespace dae {
 		}
 	}
 
-	void Renderer::StateRotation()
-	{
-		if (m_EnableRotation)
-			m_EnableRotation = false;
-		else
-			m_EnableRotation = true;
-
-		std::wcout << L"Rotation: " << m_EnableRotation << std::endl;
-	}
 }
